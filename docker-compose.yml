@@ -1,0 +1,73 @@
+# docker-compose.yml
+version: '3.9' # Используем современную версию
+
+services:
+  # Сервис Базы Данных PostgreSQL
+  db:
+    image: postgres:15-alpine # Используем легковесный образ Alpine
+    container_name: studafishka_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/ # Персистентное хранение данных БД
+    environment:
+      # Используем переменные из .env файла
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432" # Пробрасываем порт на хост (5433) для внешнего доступа (DBeaver и т.д.), если нужно
+    healthcheck: # Проверка готовности БД
+        test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+    restart: unless-stopped
+
+  # Сервис Backend (Django)
+  backend:
+    build:
+      context: ./backend # Путь к Dockerfile и коду бэкенда
+      dockerfile: Dockerfile
+    container_name: studafishka_backend
+    volumes:
+      - ./backend:/app # Монтируем код для live reload (Django runserver это поддерживает)
+    ports:
+      - "8000:8000" # Пробрасываем порт Django на хост
+    env_file:
+      - ./.env # Загружаем переменные из .env файла
+    environment:
+      # Переменные для подключения к БД внутри Docker сети
+      DB_HOST: db # Имя сервиса базы данных
+      DB_PORT: 5432 # Стандартный порт PostgreSQL
+      # DEBUG, SECRET_KEY, DJANGO_ALLOWED_HOSTS берутся из env_file
+    depends_on:
+      db: # Ждем, пока сервис db не будет готов (healthy)
+        condition: service_healthy
+    command: python manage.py runserver 0.0.0.0:8000 # Команда для запуска в режиме разработки
+    restart: unless-stopped
+
+  # Сервис Frontend (React/Vite Dev Server)
+  frontend:
+    build:
+      context: ./frontend # Путь к Dockerfile и коду фронтенда
+      dockerfile: Dockerfile.dev # Используем Dockerfile для разработки
+    container_name: studafishka_frontend
+    volumes:
+      # Монтируем код для live reload
+      - ./frontend:/app
+      # Исключаем node_modules из монтирования, чтобы использовать установленные в контейнере
+      # Используем именованный volume, чтобы сохранить node_modules между перезапусками
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "5173:5173" # Пробрасываем порт Vite dev server
+    env_file:
+      - ./.env # Загружаем переменные (например, VITE_API_URL)
+    depends_on:
+      - backend # Запускаем после бэкенда (не обязательно, но логично)
+    stdin_open: true # Необходимо для Vite HMR (Hot Module Replacement)
+    tty: true        # Необходимо для Vite HMR
+    restart: unless-stopped
+
+# Определяем именованные volumes
+volumes:
+  postgres_data: # Для данных PostgreSQL
+  frontend_node_modules: # Для node_modules фронтенда внутри контейнера
