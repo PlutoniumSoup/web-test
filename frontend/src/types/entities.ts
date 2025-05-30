@@ -8,12 +8,21 @@ export interface User {
   is_student: boolean;
 }
 
+export interface Tag {
+    id: number;
+    name: string;
+    color?: string;
+    created_at: string;
+}
+
+
 export interface Event {
   id: number;
   title: string;
   description: string;
   dt_start: string; // ISO 8601 date string
   location_text: string;
+  tags?: Tag[]; // Массив тегов или null, если нет тегов
   organizer: User;
   max_participants: number | null;
   created_at: string; // ISO 8601 date string

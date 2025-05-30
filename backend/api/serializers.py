@@ -3,10 +3,29 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
 from django.utils import timezone
-from .models import Event, Registration
+from .models import Event, Registration, Tag
 
 User = get_user_model()
 
+class TagSerializer(serializers.ModelSerializer):
+    """Сериализатор для тегов"""
+    class Meta:
+        model = Tag
+        fields = ('id', 'name', 'color', 'created_at')
+        read_only_fields = ('created_at',)
+
+    def validate_name(self, value):
+        name_lower = value.lower().strip()
+        # Проверяем наличие дубликатов с игнорированием регистра
+        existing_tags = Tag.objects.filter(name__iexact=name_lower)
+        if existing_tags.exists():
+            # Если обновляем существующий тег, исключаем его из проверки
+            if self.instance and self.instance.pk == existing_tags.first().pk:
+                return value
+            raise serializers.ValidationError("Тег с таким названием уже существует.")
+        return value  # ОБЯЗАТЕЛЬНО вернуть значение!
+
+        
 class UserSerializer(serializers.ModelSerializer):
     """Для отображения информации о пользователе"""
     class Meta:
@@ -42,21 +61,90 @@ class RegisterSerializer(serializers.ModelSerializer):
         return user
 
 class EventSerializer(serializers.ModelSerializer):
-    """Для списка и деталей мероприятий"""
+    """Обновленный сериализатор для мероприятий с поддержкой тегов"""
     organizer = UserSerializer(read_only=True)
     is_registered = serializers.SerializerMethodField(read_only=True)
     spots_left = serializers.SerializerMethodField(read_only=True)
-    is_organizer = serializers.SerializerMethodField(read_only=True) # Является ли текущий юзер организатором ЭТОГО события
+    is_organizer = serializers.SerializerMethodField(read_only=True)
+    
+    # Поля для работы с тегами
+    tags = TagSerializer(many=True, read_only=True)  # Для вывода полной информации о тегах
+    tag_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+        help_text="Список ID тегов для привязки к событию"
+    )
+    tag_names = serializers.ListField(
+        child=serializers.CharField(max_length=50),
+        write_only=True,
+        required=False,
+        help_text="Список названий тегов (будут созданы автоматически, если не существуют)"
+    )
 
     class Meta:
         model = Event
         fields = (
             'id', 'title', 'description', 'dt_start', 'location_text',
             'organizer', 'max_participants', 'created_at',
-            'is_registered', 'spots_left', 'is_organizer'
+            'is_registered', 'spots_left', 'is_organizer',
+            'tags', 'tag_ids', 'tag_names'  # Новые поля для тегов
         )
-        # Поля, которые заполняются автоматически или не редактируются напрямую
-        read_only_fields = ('organizer', 'created_at', 'is_registered', 'spots_left', 'is_organizer')
+        read_only_fields = ('organizer', 'created_at', 'is_registered', 'spots_left', 'is_organizer', 'tags')
+
+    def create(self, validated_data):
+        tag_ids = validated_data.pop('tag_ids', [])
+        tag_names = validated_data.pop('tag_names', [])
+        
+        user = self.context['request'].user  # Получаем пользователя из контекста
+        event = Event.objects.create(organizer=user, **validated_data)
+        
+        self._handle_tags(event, tag_ids, tag_names)
+        return event
+
+
+    def update(self, instance, validated_data):
+        # Извлекаем данные о тегах
+        tag_ids = validated_data.pop('tag_ids', None)
+        tag_names = validated_data.pop('tag_names', None)
+        
+        # Обновляем основные поля события
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Обрабатываем теги, если они были переданы
+        if tag_ids is not None or tag_names is not None:
+            self._handle_tags(instance, tag_ids or [], tag_names or [])
+        
+        return instance
+
+    def _handle_tags(self, event, tag_ids, tag_names):
+        """Обрабатывает привязку тегов к событию"""
+        tags_to_add = []
+        
+        # Обрабатываем теги по ID
+        if tag_ids:
+            existing_tags = Tag.objects.filter(id__in=tag_ids)
+            tags_to_add.extend(existing_tags)
+        
+        # Обрабатываем теги по названиям (создаем если не существуют)
+        if tag_names:
+            for tag_name in tag_names:
+                tag_name_clean = tag_name.lower().strip()
+                if tag_name_clean:  # Проверяем, что название не пустое
+                    tag, created = Tag.objects.get_or_create(
+                        name=tag_name_clean,
+                        defaults={'color': '#007bff'}  # Цвет по умолчанию
+                    )
+                    tags_to_add.append(tag)
+        
+        # Устанавливаем теги для события
+        if tags_to_add:
+            event.tags.set(tags_to_add)
+        elif tag_ids is not None or tag_names is not None:
+            # Если передали пустые списки, очищаем теги
+            event.tags.clear()
 
     def get_is_registered(self, obj):
         user = self.context['request'].user
@@ -66,15 +154,15 @@ class EventSerializer(serializers.ModelSerializer):
 
     def get_spots_left(self, obj):
         if obj.max_participants is None:
-            return None # Бесконечно
-        # Считаем подтвержденные регистрации для события
+            return None
         count = Registration.objects.filter(event=obj).count()
         left = obj.max_participants - count
-        return left if left >= 0 else 0 # Не может быть меньше 0
+        return left if left >= 0 else 0
 
     def get_is_organizer(self, obj):
         user = self.context['request'].user
         return user.is_authenticated and obj.organizer == user
+
 
 class RegistrationSerializer(serializers.ModelSerializer):
     """Для отображения информации о регистрации (в ЛК студента или организатора)"""
@@ -103,41 +191,36 @@ class MyRegistrationSerializer(serializers.ModelSerializer):
 
 
 class EventRegistrationCreateSerializer(serializers.Serializer):
-    """Сериализатор для СОЗДАНИЯ регистрации студентом (принимает event_id)"""
-    # Не наследуемся от ModelSerializer, т.к. нам не нужно поле student из запроса
-    event_id = serializers.IntegerField(write_only=True)
-
-    def validate_event_id(self, event_id):
-        user = self.context['request'].user
+    # Remove event_id field since we get it from URL
+    
+    def validate(self, attrs):
+        # Get event from URL parameter through the view context
+        event_pk = self.context['view'].kwargs.get('event_pk')
+        if not event_pk:
+            raise serializers.ValidationError("Event ID is required.")
+        
         try:
-            event = Event.objects.get(pk=event_id)
+            event = Event.objects.get(pk=event_pk)
         except Event.DoesNotExist:
-            raise serializers.ValidationError("Мероприятие не найдено.")
-
-        # Проверка, что событие еще не прошло
-        if event.dt_start < timezone.now():
-             raise serializers.ValidationError("Регистрация на прошедшее мероприятие невозможна.")
-
-        # Проверка, что пользователь еще не зарегистрирован
-        if Registration.objects.filter(event=event, student=user).exists():
-            raise serializers.ValidationError("Вы уже зарегистрированы на это событие.")
-
-        # Проверка свободных мест (с блокировкой для атомарности)
-        if event.max_participants is not None:
-            try:
-                with transaction.atomic():
-                    # Блокируем строку события на время проверки и создания регистрации
-                    event_locked = Event.objects.select_for_update().get(pk=event.pk)
-                    if Registration.objects.filter(event=event_locked).count() >= event_locked.max_participants:
-                        raise serializers.ValidationError("К сожалению, все места заняты.")
-            except Exception as e: # Ловим возможные ошибки блокировки или другие
-                 # Логируем ошибку e
-                 print(f"Transaction error during registration check: {e}")
-                 raise serializers.ValidationError("Произошла ошибка при проверке мест. Попробуйте еще раз.")
-
-        # Сохраняем валидный объект Event в контекст сериализатора для view
+            raise serializers.ValidationError("Event not found.")
+        
+        user = self.context['request'].user
+        
+        # Check if already registered
+        if Registration.objects.filter(student=user, event=event).exists():
+            raise serializers.ValidationError("You are already registered for this event.")
+        
+        # Check capacity
+        if event.max_participants and event.registrations.count() >= event.max_participants:
+            raise serializers.ValidationError("Event is full.")
+        
+        # Check if event is in the future
+        if event.dt_start <= timezone.now():
+            raise serializers.ValidationError("Cannot register for past events.")
+        
+        # Store event in context for the view to use
         self.context['event'] = event
-        return event_id
+        return attrs
 
 class CheckInSerializer(serializers.Serializer):
     """Сериализатор для отметки посещения (принимает registration_id)"""

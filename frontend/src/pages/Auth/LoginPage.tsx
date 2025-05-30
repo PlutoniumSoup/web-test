@@ -54,9 +54,9 @@ const LoginPage: React.FC = () => {
 
     return (
         <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-            <div className="max-w-md w-full space-y-8 bg-white p-8 shadow-lg rounded-lg">
+            <div className="max-w-md w-full space-y-8 bg-gray-900 p-8 shadow-lg rounded-lg">
                 <div>
-                    <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                    <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
                         Вход в СтудАфишку
                     </h2>
                 </div>
@@ -100,7 +100,7 @@ const LoginPage: React.FC = () => {
                     </div>
                 </form>
                  <div className="text-sm text-center">
-                     <p className="text-gray-600">
+                     <p className="text-gray-500">
                          Нет аккаунта?{' '}
                          <Link to="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
                              Зарегистрироваться

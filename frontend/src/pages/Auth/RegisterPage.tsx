@@ -82,13 +82,13 @@ const RegisterPage: React.FC = () => {
 
     return (
          <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-            <div className="max-w-md w-full space-y-8 bg-white p-8 shadow-lg rounded-lg">
+            <div className="max-w-md w-full space-y-8 bg-gray-900 p-8 shadow-lg rounded-lg">
                 <div>
-                    <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                    <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
                         Регистрация в СтудАфишке
                     </h2>
                 </div>
-                <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
+                <form className="mt-8 space-y-4 text-white" onSubmit={handleSubmit}>
                      {error && !Object.keys(fieldErrors).length && <ErrorMessage message={error} />}
                     <Input
                         label="Имя пользователя (логин)"
@@ -98,6 +98,8 @@ const RegisterPage: React.FC = () => {
                         value={formData.username}
                         onChange={handleChange}
                         error={fieldErrors.username}
+                        className='text-white bg-gray-800 border-gray-600 focus:border-indigo-500 focus:ring-indigo-500'
+
                     />
                     <Input
                         label="Email"
@@ -147,7 +149,7 @@ const RegisterPage: React.FC = () => {
                             onChange={handleChange}
                             className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
                         />
-                        <label htmlFor="is_organizer" className="ml-2 block text-sm text-gray-900">
+                        <label htmlFor="is_organizer" className="ml-2 block text-sm">
                             Я хочу быть организатором мероприятий
                         </label>
                     </div>
@@ -159,7 +161,7 @@ const RegisterPage: React.FC = () => {
                     </div>
                 </form>
                 <div className="text-sm text-center">
-                     <p className="text-gray-600">
+                     <p className="text-gray-500">
                          Уже есть аккаунт?{' '}
                          <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
                              Войти

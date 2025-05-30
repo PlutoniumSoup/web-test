@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin # Переименуем для ясности
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm # Импортируем формы
-from .models import User, Event, Registration
+from .models import User, Event, Registration, Tag # Импортируем модели
 
 # Можно создать кастомные формы, чтобы убедиться, что name используется
 class CustomUserChangeForm(UserChangeForm):
@@ -15,6 +15,17 @@ class CustomUserCreationForm(UserCreationForm):
         model = User
         # Указываем поля для формы создания, включая 'name'
         fields = ("username", "email", "name", "is_student", "is_organizer") # Пароль обрабатывается UserCreationForm
+
+@admin.register(Tag)
+class TagAdmin(admin.ModelAdmin):
+    list_display = ('name', 'color', 'created_at', 'event_count')
+    list_filter = ('created_at',)
+    search_fields = ('name',)
+    readonly_fields = ('created_at',)
+
+    def event_count(self, obj):
+        return obj.event_set.count()
+    event_count.short_description = 'Количество событий'
 
 @admin.register(User)
 class CustomUserAdmin(BaseUserAdmin): # Наследуемся от BaseUserAdmin
@@ -61,13 +72,17 @@ class CustomUserAdmin(BaseUserAdmin): # Наследуемся от BaseUserAdmi
         "user_permissions",
     )
 
-# Остальные регистрации моделей (Event, Registration) остаются без изменений
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ('title', 'organizer', 'dt_start', 'location_text', 'max_participants', 'created_at')
-    list_filter = ('dt_start', 'organizer')
+    list_display = ('title', 'organizer', 'dt_start', 'location_text', 'max_participants', 'created_at', 'tag_list')
+    list_filter = ('dt_start', 'organizer', 'tags')
     search_fields = ('title', 'description', 'location_text')
     autocomplete_fields = ['organizer']
+    filter_horizontal = ('tags',)  # Удобный виджет для выбора тегов
+
+    def tag_list(self, obj):
+        return ", ".join([tag.name for tag in obj.tags.all()])
+    tag_list.short_description = 'Теги'
 
 @admin.register(Registration)
 class RegistrationAdmin(admin.ModelAdmin):

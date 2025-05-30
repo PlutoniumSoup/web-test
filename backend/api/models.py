@@ -20,6 +20,27 @@ class User(AbstractUser):
             self.is_student = True
         super().save(*args, **kwargs)
 
+# Добавляем новую модель для тегов
+class Tag(models.Model):
+    name = models.CharField("Название тега", max_length=50, unique=True)
+    color = models.CharField("Цвет тега", max_length=7, default="#007bff", 
+                           help_text="Цвет в формате HEX (например, #ff0000)")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Тег"
+        verbose_name_plural = "Теги"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        # Приводим название тега к нижнему регистру для унификации
+        # self.name = self.name.strip().lower()
+        super().save(*args, **kwargs)
+
+# Обновляем модель Event
 class Event(models.Model):
     title = models.CharField("Название", max_length=200)
     description = models.TextField("Описание", blank=True)
@@ -30,11 +51,18 @@ class Event(models.Model):
         related_name='organized_events',
         on_delete=models.CASCADE,
         verbose_name="Организатор",
-        limit_choices_to={'is_organizer': True} # Ограничиваем выбор только организаторами
+        limit_choices_to={'is_organizer': True}
     )
     max_participants = models.PositiveIntegerField(
         "Макс. участников", null=True, blank=True,
         help_text="Оставьте пустым для неограниченного количества"
+    )
+    # НОВОЕ ПОЛЕ - связь многие-ко-многим с тегами
+    tags = models.ManyToManyField(
+        Tag,
+        blank=True,
+        verbose_name="Теги",
+        help_text="Выберите теги для категоризации мероприятия"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -45,6 +73,10 @@ class Event(models.Model):
 
     def __str__(self):
         return self.title
+
+    def get_tag_names(self):
+        """Возвращает список названий тегов"""
+        return [tag.name for tag in self.tags.all()]
 
 class Registration(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False) # Уникальный ID для QR

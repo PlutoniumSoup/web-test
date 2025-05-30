@@ -25,7 +25,7 @@ const Input: React.FC<InputProps> = ({
     return (
         <div>
             {label && (
-                <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor={inputId} className="block text-sm font-medium mb-1">
                     {label} {props.required && <span className="text-red-500">*</span>}
                 </label>
             )}

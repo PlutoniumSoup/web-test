@@ -41,9 +41,9 @@ const OrganizerDashboardPage: React.FC = () => {
          return (
              <div className="space-y-4">
                  {myEvents.map(event => (
-                     <div key={event.id} className="bg-white p-4 shadow rounded-lg flex justify-between items-center">
+                     <div key={event.id} className="bg-gray-900 text-white p-4 shadow rounded-lg flex justify-between items-center">
                          <div>
-                             <h3 className="font-semibold text-lg text-indigo-700">{event.title}</h3>
+                             <h3 className="font-semibold text-lg text-indigo-500">{event.title}</h3>
                              <p className="text-sm text-gray-500">{new Date(event.dt_start).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                          </div>
                          <div className="space-x-2 flex-shrink-0">
@@ -69,7 +69,7 @@ const OrganizerDashboardPage: React.FC = () => {
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-800">Панель Организатора</h1>
+                <h1 className="text-3xl font-bold">Панель Организатора</h1>
                 <Link to="/create-event">
                     <Button variant="primary">Создать мероприятие</Button>
                 </Link>

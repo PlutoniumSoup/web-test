@@ -4,9 +4,11 @@ from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.contrib.auth import get_user_model
-from django.db.models import Q # <--- ДОБАВЬТЕ ЭТОТ ИМПОРТ
+from django.db.models import Q
 
-from .models import Event, Registration # Модели вашего приложения уже импортированы
+from .models import Event, Registration, Tag
+from .serializers import TagSerializer
+from datetime import timedelta
 from .serializers import (
     UserSerializer, RegisterSerializer, EventSerializer, RegistrationSerializer,
     EventRegistrationCreateSerializer, CheckInSerializer, MyRegistrationSerializer
@@ -29,64 +31,68 @@ class MeView(generics.RetrieveAPIView):
      def get_object(self):
          return self.request.user
 
+class TagViewSet(viewsets.ModelViewSet):
+    """API для управления тегами"""
+    queryset = Tag.objects.all()
+    serializer_class = TagSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_permissions(self):
+        # Читать теги могут все аутентифицированные пользователи
+        if self.action in ['list', 'retrieve']:
+            self.permission_classes = [permissions.AllowAny]
+        # Создавать/редактировать/удалять теги могут только организаторы
+        else:
+            self.permission_classes = [permissions.AllowAny, IsOrganizer]
+        return super().get_permissions()
+
 class EventViewSet(viewsets.ModelViewSet):
-    """API для мероприятий (CRUD для организаторов, Read для всех)"""
+    """Обновленный API для мероприятий с поддержкой фильтрации по тегам"""
     serializer_class = EventSerializer
 
     def get_queryset(self):
         user = self.request.user
+        queryset = Event.objects.prefetch_related('tags')  # Оптимизация запросов
+        
         if user.is_authenticated and user.is_organizer:
-            # Теперь 'Q' будет распознано
-            return Event.objects.filter(
+            queryset = queryset.filter(
                 Q(organizer=user) | Q(dt_start__gte=timezone.now())
-            ).distinct().order_by('dt_start')
-        # Студенты и анонимы видят только будущие события
-        return Event.objects.filter(dt_start__gte=timezone.now()).order_by('dt_start')
+            ).distinct()
+        else:
+            # Студенты и анонимы видят только будущие события
+            queryset = queryset.filter(dt_start__gte=timezone.now())
 
-    def get_permissions(self):
-        # Создавать может только организатор
-        if self.action == 'create':
-            self.permission_classes = [permissions.IsAuthenticated, IsOrganizer]
-        # Редактировать/удалять может только организатор ЭТОГО события
-        elif self.action in ['update', 'partial_update', 'destroy', 'participants', 'check_in']:
-            # IsEventOrganizer проверяет права на уровне объекта
-            self.permission_classes = [permissions.IsAuthenticated, IsEventOrganizer]
-        # Смотреть список/детали могут все (даже анонимы)
-        else: # list, retrieve
-            self.permission_classes = [permissions.AllowAny]
-        return super().get_permissions()
+        # Фильтрация по тегам
+        tag_filter = self.request.query_params.get('tags', None)
+        if tag_filter:
+            # Поддерживаем фильтрацию по ID тегов (через запятую)
+            try:
+                tag_ids = [int(tag_id.strip()) for tag_id in tag_filter.split(',')]
+                queryset = queryset.filter(tags__id__in=tag_ids).distinct()
+            except ValueError:
+                pass  # Игнорируем неверный формат
 
-    def perform_create(self, serializer):
-        # Автоматически назначаем организатором текущего пользователя
-        serializer.save(organizer=self.request.user)
+        # Фильтрация по названиям тегов
+        tag_names_filter = self.request.query_params.get('tag_names', None)
+        if tag_names_filter:
+            tag_names = [name.strip().lower() for name in tag_names_filter.split(',')]
+            queryset = queryset.filter(tags__name__in=tag_names).distinct()
 
-    # Доп. эндпоинт: GET /api/events/{event_pk}/participants/
-    @action(detail=True, methods=['get'], url_path='participants')
-    def participants(self, request, pk=None):
-        """Получить список зарегистрированных на мероприятие (для организатора)"""
-        event = self.get_object() # Проверка прав IsEventOrganizer уже произошла
-        registrations = Registration.objects.filter(event=event).select_related('student')
-        serializer = RegistrationSerializer(registrations, many=True, context=self.get_serializer_context())
+        return queryset.order_by('dt_start')
+
+    @action(detail=False, methods=['get'], url_path='popular-tags')
+    def popular_tags(self, request):
+        """Получить популярные теги (используемые в событиях)"""
+        from django.db.models import Count
+        
+        # Получаем теги, отсортированные по количеству использований
+        popular_tags = Tag.objects.annotate(
+            usage_count=Count('event')
+        ).filter(usage_count__gt=0).order_by('-usage_count')[:10]
+        
+        serializer = TagSerializer(popular_tags, many=True)
         return Response(serializer.data)
 
-    # Доп. эндпоинт: POST /api/events/{event_pk}/check_in/
-    @action(detail=True, methods=['post'], url_path='check_in')
-    def check_in(self, request, pk=None):
-        """Отметить посещение студента по QR (UUID регистрации)"""
-        event = self.get_object() # Проверка прав IsEventOrganizer
-        serializer = CheckInSerializer(data=request.data, context={'event': event}) # Передаем событие в контекст
-        serializer.is_valid(raise_exception=True)
-
-        # Получаем объект регистрации из валидного сериализатора
-        registration = serializer.context['registration']
-        registration.attended = True
-        registration.save()
-
-        student_info = registration.student.name or registration.student.username
-        return Response(
-            {"message": f"Студент {student_info} успешно отмечен!", "registration": RegistrationSerializer(registration).data},
-            status=status.HTTP_200_OK
-        )
 
 class MyRegistrationsListView(generics.ListAPIView):
     """Получение списка регистраций текущего студента"""
